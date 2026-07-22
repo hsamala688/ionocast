@@ -1,0 +1,32 @@
+# swp-data runtime configuration.
+#
+# Precedence: dataclass defaults < this file < environment variables
+# (SWP_DATA_ROOT, SWP_START_DATE, SWP_END_DATE, SWP_CENTER, SWP_TRAIN_END_YEAR,
+#  SWP_VAL_END_YEAR, SWP_CHUNK_SIZE). Point at a different file with
+# SWP_CONFIG_FILE.
+#
+# The fixed scientific contract (grid Lmax/nlat/nlon, driver features, input/
+# target step counts, F10.7 spike threshold) is NOT here -- it lives in
+# swp_data/config.py because it is a data contract, not environment config.
+
+data_root: data
+
+# Retrospective build range (inclusive).
+start_date: 2000-01-01
+end_date: 2025-12-31
+
+# IGS analysis center for IONEX (COD = CODE, Bern).
+center: COD
+
+# Temporal split boundaries (years <= train_end_year -> train, etc.).
+train_end_year: 2019
+val_end_year: 2022
+
+# Windowing batch size for the gold stage.
+chunk_size: 512
+
+# Remote sources.
+ionex_base: https://cddis.nasa.gov/archive/gnss/products/ionex/
+omni_hro_base: https://spdf.gsfc.nasa.gov/pub/data/omni/high_res_omni/
+gfz_index_url: https://kp.gfz.de/app/files/Kp_ap_Ap_SN_F107_since_1932.txt
+gfz_index_filename: Kp_ap_Ap_SN_F107_since_1932.txt
