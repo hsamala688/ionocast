@@ -104,6 +104,24 @@ class TestDedupeEpochs:
         tec, ts = self.make([0, 7200, 7200], values=[1.0, 2.0, 2.0])
         stats = dedupe_epochs(tec, ts)[3]
         assert stats["max"] == 0.0 and stats["mean"] == 0.0
+        assert stats["relative"] == 0.0
+
+    def test_disagreement_is_relative_to_signal(self):
+        """The judged statistic must not scale with TEC magnitude.
+
+        Absolute difference tracks the signal, which swings ~10x over a solar
+        cycle -- an absolute threshold fires hardest at solar maximum, where
+        relative agreement is actually best.
+        """
+        # Values chosen exactly representable in float32 so the comparison is
+        # about the statistic, not rounding.
+        quiet, _ = self.make([0, 7200, 7200], values=[1.0, 10.0, 10.5])
+        loud, ts = self.make([0, 7200, 7200], values=[1.0, 100.0, 105.0])
+        q = dedupe_epochs(quiet, ts)[3]
+        l = dedupe_epochs(loud, ts)[3]
+
+        assert l["mean"] > q["mean"] * 5          # absolute differs 10x
+        assert l["relative"] == pytest.approx(q["relative"], rel=1e-6)
 
     def test_output_is_sorted_and_unique(self):
         tec, ts = self.make([7200, 0, 3600, 7200])

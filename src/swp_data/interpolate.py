@@ -27,11 +27,16 @@ from .settings import Settings
 logger = logging.getLogger(__name__)
 
 # Duplicate maps of the same instant come from two different daily solutions, so
-# they never agree exactly. On real CODE data the mean cell-wise difference is
-# ~0.08 TECU (about 1% of signal), which is one IONEX quantization step. Warn
-# only past that, and on the mean rather than the max -- a single outlier cell
-# reaching 1.2 TECU is normal and would otherwise warn every year.
-_DUPLICATE_TOLERANCE_TECU = 0.1
+# they never agree exactly. Measured across the full CODE record the mean
+# cell-wise difference is a near-constant ~1.4% of signal (1.42% in 2002, 1.42%
+# in 2003, 1.45% in 2004, 1.50% in 2005, 1.0% in a quiet 2019 week).
+#
+# The threshold is therefore RELATIVE. An absolute one is meaningless here: TEC
+# swings roughly 10x over a solar cycle, so a fixed TECU limit fires hardest at
+# solar maximum -- precisely where relative agreement is best. 5% leaves >3x
+# headroom over the observed baseline while still catching a genuinely
+# misaligned map, which would differ by tens of percent.
+_DUPLICATE_TOLERANCE_FRACTION = 0.05
 
 
 def target_grid() -> tuple[np.ndarray, np.ndarray]:
@@ -136,15 +141,14 @@ def dedupe_epochs(tec: np.ndarray, timestamps: np.ndarray,
     copies agreed. Collapsing them here, where they are created, does both.
 
     Returns (tec, timestamps, n_dropped, disagreement) where `disagreement`
-    holds "max" and "mean" over the cells of the duplicated maps.
+    holds "max", "mean" and "relative" over the cells of the duplicated maps.
 
-    Both are reported because they say different things. The two copies are
-    produced by different daily solutions, so they disagree slightly everywhere;
-    measured on real CODE data the mean is ~0.08 TECU against a ~8 TECU signal
-    (1%) while the max is ~1.2 TECU in a single cell. Judging on the max alone
-    would fire a warning on essentially every year and train the reader to ignore
-    it. The mean is what distinguishes normal solution noise from a genuinely
-    misaligned map.
+    The two copies come from different daily solutions, so they disagree slightly
+    everywhere. "relative" -- mean difference over mean magnitude -- is the one
+    to judge on, because the absolute difference tracks the signal: measured
+    across the record it stays near 1.4% while the raw TECU value ranges from
+    0.08 at solar minimum to 0.48 at maximum. "max" is reported alongside but is
+    a single outlier cell and is not a quality signal on its own.
     """
     order = np.argsort(timestamps, kind="stable")
     tec, timestamps = tec[order], timestamps[order]
@@ -152,13 +156,19 @@ def dedupe_epochs(tec: np.ndarray, timestamps: np.ndarray,
     keep = np.concatenate([[True], np.diff(timestamps) != 0])
     n_dropped = int((~keep).sum())
 
-    disagreement = {"max": 0.0, "mean": 0.0}
+    disagreement = {"max": 0.0, "mean": 0.0, "relative": 0.0}
     if n_dropped:
         dup = np.flatnonzero(~keep)
-        diff = np.abs(tec[dup].astype(np.float64) - tec[dup - 1].astype(np.float64))
+        kept = tec[dup - 1].astype(np.float64)
+        diff = np.abs(tec[dup].astype(np.float64) - kept)
         if diff.size and not np.all(np.isnan(diff)):
-            disagreement = {"max": float(np.nanmax(diff)),
-                            "mean": float(np.nanmean(diff))}
+            mean = float(np.nanmean(diff))
+            scale = float(np.nanmean(np.abs(kept)))
+            disagreement = {
+                "max": float(np.nanmax(diff)),
+                "mean": mean,
+                "relative": mean / scale if scale > 0 else 0.0,
+            }
 
     return tec[keep], timestamps[keep], n_dropped, disagreement
 
@@ -218,15 +228,17 @@ def build_interpolated(settings: Settings, year: int | None = None, overwrite: b
         tec_all, ts_all, n_dup, disagreement = dedupe_epochs(tec_all, ts_all)
         if n_dup:
             logger.info("%d: collapsed %d duplicate day-boundary epochs "
-                        "(disagreement mean %.3g / max %.3g TECU)",
-                        current_year, n_dup, disagreement["mean"], disagreement["max"])
-            if disagreement["mean"] > _DUPLICATE_TOLERANCE_TECU:
+                        "(disagreement %.2f%% of signal; mean %.3g / max %.3g TECU)",
+                        current_year, n_dup, 100 * disagreement["relative"],
+                        disagreement["mean"], disagreement["max"])
+            if disagreement["relative"] > _DUPLICATE_TOLERANCE_FRACTION:
                 logger.warning(
-                    "%d: duplicate epochs disagree by %.3g TECU on average, above the "
-                    "%.2g TECU expected from separate daily solutions. The 24:00 map of "
-                    "one day and the 00:00 map of the next are the same instant; the "
-                    "earlier copy was kept, but check for a misaligned map.",
-                    current_year, disagreement["mean"], _DUPLICATE_TOLERANCE_TECU,
+                    "%d: duplicate epochs disagree by %.1f%% of signal, above the %.0f%% "
+                    "expected from separate daily solutions. The 24:00 map of one day "
+                    "and the 00:00 map of the next are the same instant; the earlier "
+                    "copy was kept, but check for a misaligned map.",
+                    current_year, 100 * disagreement["relative"],
+                    100 * _DUPLICATE_TOLERANCE_FRACTION,
                 )
 
         np.savez(dest, tec=tec_all, timestamps=ts_all, input_fingerprint=source_fp)
