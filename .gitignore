@@ -1,0 +1,24 @@
+# Environments
+.venv/
+venv/
+
+# Python build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Credentials -- CDDIS Earthdata auth belongs in ~/.netrc, never in the repo
+.netrc
+*.netrc
+
+# Pipeline data. config.yaml defaults data_root to ./data, so a full build
+# (8-10 GB of silver + gold, plus the bronze IONEX archive) lands here.
+data/
+
+# OS
+.DS_Store
+
+# Miscellaneous
+docs/

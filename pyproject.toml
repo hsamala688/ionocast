@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "swp-data"
+version = "0.2.0"
+description = "Space Weather Predictor data pipeline (Medallion bronze/silver/gold)"
+# Driven by the locked numpy/scipy, which are themselves >=3.12.
+requires-python = ">=3.12"
+
+# Two tiers: these ranges say what the pipeline SUPPORTS; requirements.lock
+# records what it was actually built with. Ranges alone are not reproducible,
+# and a lock alone is not installable elsewhere -- you want both.
+#
+# Tightness is (likelihood of semantic drift) x (blast radius on the data),
+# not a uniform policy. See "Dependency pinning" in src/PIPELINE.md.
+dependencies = [
+    # PyIRI IS the baseline: dTEC = IONEX - IRI, so its output is the data, in
+    # the inputs AND the targets. It is also 0.x -- semver promises nothing
+    # below 1.0 -- and ships its own coefficient tables, so a bump can move the
+    # numbers through data as well as code. Exact-pin: treat the version as part
+    # of the scientific contract, alongside LMAX and AALT. Do not move it
+    # without the rebuild-and-diff check documented in PIPELINE.md.
+    "PyIRI==0.1.6",
+
+    # In the numerical path via interpolate(method="time") -- F10.7 spike days
+    # and OMNI driver alignment -- but linear time-interpolation is
+    # mathematically pinned down, so the real risk is API churn (e.g. the 3.0
+    # copy-on-write change that made to_numpy() read-only). Range + lock.
+    "pandas>=2.2,<4",
+
+    # Deterministic math only: leggauss nodes, rounding, RegularGridInterpolator
+    # linear. Major-version bounds are about API removals, not numerics.
+    "numpy>=2.0,<3",
+    "scipy>=1.11,<2",
+
+    # Not in the numerical path. Stable formats / plain I/O.
+    "pyarrow>=14",
+    "requests>=2.28",
+    "unlzw3>=0.2",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# Consumer only (swp_data.dataset). No build stage imports torch, and the gold
+# outputs are plain .npy -- so a ~1 GB install is not forced on anyone who just
+# wants the data.
+torch = ["torch>=2.0"]
+dev = ["pytest>=7"]
+
+[project.scripts]
+swp-data = "swp_data.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
