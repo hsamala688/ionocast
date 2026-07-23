@@ -1,0 +1,155 @@
+.calendar {
+  width: 100%;
+  max-width: 100%;
+  margin: 0 auto; /* center within the panel */
+  background: transparent; /* inherit the UI panel's glass background */
+  overflow: hidden;
+  color: #ffffff;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  border-bottom: 4px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Interactive date banner: "April 10th, 2024" with clickable month & year */
+.calendar__header {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  background: transparent;
+  color: #ffffff;
+  font-size: 1.4rem;
+  font-weight: 500;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.calendar__day-label {
+  white-space: nowrap;
+}
+
+/* Selects in the header inherit the large banner text size */
+.calendar__header .calendar__select {
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+/* Wrapper sizes to the visible text so spacing is identical for every month.
+   A transparent <select> is laid on top to keep the click-to-open dropdown. */
+.calendar__field {
+  position: relative;
+  display: inline-block;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.calendar__field:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.calendar__field:focus-within {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.calendar__field-text {
+  display: inline-block;
+  padding: 2px 4px;
+}
+
+.calendar__select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background: none;
+  border: none;
+  margin: 0;
+  padding: 0;
+  color: #ffffff;
+  font-family: inherit;
+  cursor: pointer;
+  opacity: 0; /* invisible; the sibling span provides the visible label */
+}
+
+.calendar__select:focus {
+  outline: none;
+}
+
+/* Native dropdown list renders on white, so keep its text dark */
+.calendar__select option {
+  color: #1a1a1a;
+}
+
+.calendar__year {
+  font-weight: 600;
+}
+
+.calendar__arrows {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.calendar__arrows button {
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  line-height: 1;
+  color: #ffffff;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+.calendar__arrows button:disabled {
+  color: rgba(255, 255, 255, 0.3);
+  cursor: default;
+}
+
+/* 7-column layout shared by weekday row and day grid */
+.calendar__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  grid-auto-rows: 34px; /* fixed row height -> constant grid height */
+  gap: 2px;
+  padding: 0 12px 8px;
+}
+
+.calendar__weekdays {
+  padding-top: 8px;
+}
+
+.calendar__weekday {
+  text-align: center;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.85rem;
+  padding: 2px 0;
+}
+
+/* Individual day buttons — fixed circles centered in each column */
+.calendar__day {
+  width: 34px;
+  height: 34px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: 50%;
+  font-size: 0.9rem;
+  color: #ffffff;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.calendar__day:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Green circle for the chosen day (overrides weekend red) */
+.calendar__day--selected,
+.calendar__day--selected:hover {
+  background: #1168ea;
+  color: #ffffff;
+}

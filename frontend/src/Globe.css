@@ -1,0 +1,12 @@
+.layout {
+  display: flex;
+  align-items: stretch;
+}
+
+.globe {
+  position: absolute; /* Add this line */
+  width: 65vw;
+  height: 100vh;
+  transform: translateY(30px);
+  left: -2vw;
+}
