@@ -1,0 +1,24 @@
+{
+  // Cloudflare Worker that serves the built React app (static assets) AND
+  // proxies TEC map blobs from R2 on the same origin. See worker/index.ts.
+  "$schema": "node_modules/wrangler/config-schema.json",
+
+  // Must match the EXISTING Worker name so this deploys to the same Worker and
+  // keeps the ionocast.com / www.ionocast.com custom domains attached.
+  "name": "ionocast",
+  "main": "worker/index.ts",
+  "compatibility_date": "2025-06-01",
+
+  // The Vite build output. Requests that match a file here are served directly
+  // and never hit the Worker; unmatched routes invoke the Worker (see index.ts).
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+
+  // Binds the R2 `tec` bucket into the Worker as env.TEC_BUCKET.
+  "r2_buckets": [{ "binding": "TEC_BUCKET", "bucket_name": "tec" }],
+
+  "observability": { "enabled": true }
+}

@@ -1,23 +1,23 @@
-// TEC map data source (Cloudflare R2), configured per environment.
+// TEC map data source.
+//
+// Default is the SAME-ORIGIN path "/tec", served by our own Cloudflare Worker
+// (see worker/index.ts), which streams the blobs out of the R2 `tec` bucket.
+// Because the browser fetches from its own origin (e.g. www.ionocast.com/tec/…),
+// there is NO cross-origin request and therefore no CORS to configure.
 //
 // Resolution order:
-//   1. VITE_TEC_BASE_URL — set this per environment (e.g. in Cloudflare Pages/
-//      Workers env vars, or a local `.env`). Vite inlines it at BUILD time, so
-//      it must be present before `npm run build` runs.
-//   2. Fallback: the production custom domain on the R2 `tec` bucket.
+//   1. VITE_TEC_BASE_URL — override per environment. Vite inlines it at BUILD
+//      time, so it must be set before `npm run build`. Use this for local `vite`
+//      dev, where "/tec" has no handler: point it at a live origin, e.g.
+//      VITE_TEC_BASE_URL=https://www.ionocast.com  (or run `wrangler dev`, which
+//      serves "/tec" locally via the Worker).
+//   2. Fallback: "/tec" (same-origin Worker route) — correct in production.
 //
-// The custom domain (data.ionocast.com) is what makes this production-ready:
-// proper CDN caching, no r2.dev rate limit, and support for cache/WAF/hotlink
-// rules. The old free `pub-<hash>.r2.dev` URL still works but is rate-limited,
-// uncacheable, and meant only for local dev/demos.
-//
-// The bucket is public READ-ONLY (GET on objects only) — safe for these public
-// TEC maps; it exposes no upload keys, and R2 egress is free regardless of URL.
-//
-// Swapping data sources = change only this string (or the env var) — nothing
-// about the blobs, key layout, or the backend/scripts upload path changes.
+// The bucket is public READ-ONLY; R2 egress is free. Swapping data sources =
+// change only this string (or the env var) — nothing about the blobs, key
+// layout, or the backend/scripts upload path changes.
 export const TEC_BASE_URL =
-  import.meta.env.VITE_TEC_BASE_URL ?? 'https://data.ionocast.com';
+  import.meta.env.VITE_TEC_BASE_URL ?? '/tec';
 
 export const TEC_NLAT = 71;
 export const TEC_NLON = 73;

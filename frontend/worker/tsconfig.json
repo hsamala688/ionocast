@@ -1,0 +1,17 @@
+{
+  // Isolated config for the Worker: Cloudflare runtime types, no DOM libs.
+  // (The React app is type-checked separately by tsconfig.app.json, which does
+  // NOT include this folder — so `npm run build` never sees Worker globals.)
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "es2022",
+    "moduleResolution": "bundler",
+    "lib": ["es2022"],
+    "types": ["@cloudflare/workers-types"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "verbatimModuleSyntax": true
+  },
+  "include": ["index.ts"]
+}
