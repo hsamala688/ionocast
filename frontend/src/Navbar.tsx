@@ -3,7 +3,6 @@ import './Navbar.css';
 
 // TODO: replace these with the real destinations
 const GITHUB_URL = 'https://github.com/hsamala688/ionocast';
-const PAPER_URL = 'https://arxiv.org/abs/0000.00000';
 
 const GitHubIcon: React.FC = () => (
   <svg
@@ -26,7 +25,6 @@ type NavLink = {
 };
 
 const links: NavLink[] = [
-  { label: 'About', href: PAPER_URL, external: true },
   { label: 'GitHub', href: GITHUB_URL, external: true, icon: <GitHubIcon /> },
 ];
 

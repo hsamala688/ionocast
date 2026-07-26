@@ -3,17 +3,16 @@ import './TogglePanel.css';
 
 type Toggle = { id: string; label: string; checked: boolean };
 
-const TogglePanel = () => {
+const TogglePanel = ({ onTecChange }: { onTecChange?: (checked: boolean) => void }) => {
   const [toggles, setToggles] = useState<Toggle[]>([
-    { id: 't1', label: 'Normal Earth', checked: true },
-    { id: 't2', label: 'Predicted TEC (Coming Soon)', checked: false },
-    { id: 't3', label: 'Actual TEC', checked: false },
+    { id: 't1', label: 'Predicted TEC (Coming Soon)', checked: false },
+    { id: 't2', label: 'Actual TEC', checked: false },
   ]);
 
   const handleToggle = (id: string) => {
-    setToggles((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, checked: !t.checked } : t))
-    );
+    const next = toggles.map((t) => (t.id === id ? { ...t, checked: !t.checked } : t));
+    setToggles(next);
+    if (id === 't2') onTecChange?.(next.find((t) => t.id === 't2')!.checked);
   };
 
   return (
