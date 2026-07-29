@@ -56,25 +56,35 @@ const tecFragmentShader = /* glsl */ `
   uniform float uLonOffset;
   varying vec2 vUv;
 
-  // Simple blue -> cyan -> green -> yellow -> red ramp.
+  // Inferno colormap (matplotlib), Matt Zucker's 6th-order polynomial fit.
+  // Perceptually uniform + monotonic luminance + colorblind-safe, so equal TEC
+  // steps read as equal colour steps and the map still makes sense in grayscale.
+  // Returns sRGB-space colour (the fit approximates the sRGB colormap); we
+  // linearise below before output so it composites correctly with the Earth.
   vec3 ramp(float t) {
-    vec3 c1 = vec3(0.03, 0.05, 0.35);
-    vec3 c2 = vec3(0.00, 0.55, 0.75);
-    vec3 c3 = vec3(0.15, 0.75, 0.20);
-    vec3 c4 = vec3(0.95, 0.85, 0.10);
-    vec3 c5 = vec3(0.85, 0.15, 0.10);
-    if (t < 0.25) return mix(c1, c2, t / 0.25);
-    if (t < 0.50) return mix(c2, c3, (t - 0.25) / 0.25);
-    if (t < 0.75) return mix(c3, c4, (t - 0.50) / 0.25);
-    return mix(c4, c5, (t - 0.75) / 0.25);
+    const vec3 c0 = vec3(0.0002189403691192265, 0.001651004631001012, -0.01948089843709184);
+    const vec3 c1 = vec3(0.1065134194856116, 0.5639564367884091, 3.932712388889277);
+    const vec3 c2 = vec3(11.60249308247187, -3.972853965665698, -15.9423941062914);
+    const vec3 c3 = vec3(-41.70399613139459, 17.43639888205313, 44.35414519872813);
+    const vec3 c4 = vec3(77.162935699427, -33.40235894210092, -81.80730925738993);
+    const vec3 c5 = vec3(-71.31942824499214, 32.62606426397723, 73.20951985803202);
+    const vec3 c6 = vec3(25.13112622477341, -12.24266895238567, -23.07032500287172);
+    return c0 + t*(c1 + t*(c2 + t*(c3 + t*(c4 + t*(c5 + t*c6)))));
   }
 
   void main() {
-    vec2 uv = vec2(fract(vUv.x + uLonOffset), vUv.y);
+    vec2 uv = vec2(fract(vUv.x + uLonOffset), 1.0 - vUv.y);
     float v = texture2D(tecMap, uv).r;
     if (v != v) discard;                       // NaN (missing) -> transparent
     float t = clamp((v - uMin) / (uMax - uMin), 0.0, 1.0);
-    gl_FragColor = vec4(ramp(t), uOpacity);
+
+    // Fade the low end so quiet regions let the Earth show through and only the
+    // TEC crests read as solid. Flat opacity would veil the whole night side.
+    float a = uOpacity * smoothstep(0.0, 0.35, t);
+
+    // ramp() is sRGB; the renderer works in linear + re-encodes via
+    // colorspace_fragment, so linearise here to avoid a double gamma encode.
+    gl_FragColor = vec4(pow(clamp(ramp(t), 0.0, 1.0), vec3(2.2)), a);
     #include <colorspace_fragment>
   }
 `;

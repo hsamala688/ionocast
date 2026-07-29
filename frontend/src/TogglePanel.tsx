@@ -23,17 +23,17 @@ const TogglePanel = ({ onTecChange }: { onTecChange?: (checked: boolean) => void
 
       <div className="toggle-panel__list">
         {toggles.map((toggle) => (
-          <label key={toggle.id} className="toggle-item">
+          <div key={toggle.id} className="toggle-item">
             <span className="toggle-text">{toggle.label}</span>
-            <span className="switch">
+            <label className="switch">
               <input
                 type="checkbox"
                 checked={toggle.checked}
                 onChange={() => handleToggle(toggle.id)}
               />
               <span className="switch__slider" />
-            </span>
-          </label>
+            </label>
+          </div>
         ))}
       </div>
     </div>
