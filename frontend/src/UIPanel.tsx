@@ -2,14 +2,15 @@ import React from 'react';
 import './UIPanel.css';
 import { Calendar } from './Calendar';
 import TogglePanel from './TogglePanel';
+import type { TecMode } from './tecMode';
 
 interface UIPanelProps {
   onSelectDate: (date: Date) => void;
-  showTec: boolean;
-  onToggleTec: (checked: boolean) => void;
+  tecMode: TecMode;
+  onTecModeChange: (mode: TecMode) => void;
 }
 
-export const UIPanel: React.FC<UIPanelProps> = ({ onSelectDate, showTec, onToggleTec }) => {
+export const UIPanel: React.FC<UIPanelProps> = ({ onSelectDate, tecMode, onTecModeChange }) => {
   return (
     <div className="ui-panel">
       <div className="panel-header">
@@ -19,11 +20,16 @@ export const UIPanel: React.FC<UIPanelProps> = ({ onSelectDate, showTec, onToggl
         <Calendar onSelect={onSelectDate} />
       </div>
       <div className="panel-section">
-        <TogglePanel onTecChange={onToggleTec} />
+        <TogglePanel mode={tecMode} onModeChange={onTecModeChange} />
       </div>
-      {showTec && (
+      {tecMode !== 'off' && (
         <div className="panel-section">
-          <h3>Total Electron Content</h3>
+          <h3 className="tec-heading">
+            {tecMode === 'predicted' ? 'Predicted TEC' : 'Total Electron Content'}
+            <span className="tec-heading__hint">
+              Click the globe to pause; click again to resume.
+            </span>
+          </h3>
           <div className="tec-legend">
             <div className="tec-legend__bar" />
             <div className="tec-legend__ticks">
@@ -35,6 +41,9 @@ export const UIPanel: React.FC<UIPanelProps> = ({ onSelectDate, showTec, onToggl
             </div>
             <div className="tec-legend__unit">TECU</div>
           </div>
+          <p className="tec-disclaimer">
+            Unfortunately some days or hours have no maps as there were gaps in the data.
+          </p>
         </div>
       )}
     </div>

@@ -1,0 +1,44 @@
+/* Sits at the top-left, just under the 60px navbar so it reads as "under the
+   Ionocast text". Aligned to the navbar's 24px gutter. */
+.utc-clock {
+  position: fixed;
+  top: 72px;
+  left: 24px;
+  z-index: 9;
+
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(10, 10, 12, 0.35);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+
+  color: #ffffff;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  pointer-events: none; /* purely a readout, never blocks globe interaction */
+}
+
+.utc-clock__label {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #8a8a93;
+}
+
+.utc-clock__time {
+  font-size: 1.4rem;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums; /* digits keep a fixed width as they tick */
+}
+
+.utc-clock__zone {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: #8a8a93;
+  margin-left: 2px;
+}

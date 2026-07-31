@@ -54,6 +54,23 @@
   margin: 0 0 12px 0;
 }
 
+/* Map heading with the pause hint inline, in smaller, non-uppercase text. */
+.tec-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  column-gap: 8px;
+  row-gap: 2px;
+}
+
+.tec-heading__hint {
+  font-size: 0.65rem;
+  font-weight: 400;
+  letter-spacing: 0.2px;
+  text-transform: none;
+  color: #6f6f78;
+}
+
 .data-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -107,6 +124,14 @@
   background: rgba(255, 255, 255, 0.05);
 }
 
+/* Hint above the legend: the map auto-tracks the daylit side; click to freeze. */
+.tec-hint {
+  margin: 0 0 12px 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: #8a8a93;
+}
+
 /* TEC colorbar legend. Gradient mirrors the Inferno colormap used by the
    overlay shader (see Globe.tsx ramp()), so the panel reads as its key. */
 .tec-legend {
@@ -146,4 +171,12 @@
   letter-spacing: 1px;
   text-transform: uppercase;
   color: #8a8a93;
+}
+
+.tec-disclaimer {
+  margin: 12px 0 0 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: #8a8a93;
+  font-style: italic;
 }

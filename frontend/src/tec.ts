@@ -30,24 +30,31 @@ function dateKey(d: Date): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-// Cache the *promise* per day so concurrent calls dedupe and re-selecting is instant.
+// Which map set to fetch. Both live in the same R2 bucket; predicted is stored
+// under a "predicted/" key prefix, actual at the root (see backend/scripts).
+export type TecSource = 'actual' | 'predicted';
+const SOURCE_PREFIX: Record<TecSource, string> = { actual: '', predicted: 'predicted/' };
+
+// Cache the *promise* per (source, day) so concurrent calls dedupe and
+// re-selecting is instant. Keyed by source too so actual/predicted don't clash.
 const cache = new Map<string, Promise<Uint16Array>>();
 
-export function fetchTecDay(d: Date): Promise<Uint16Array> {
+export function fetchTecDay(d: Date, source: TecSource = 'actual'): Promise<Uint16Array> {
   const key = dateKey(d);
-  let p = cache.get(key);
+  const cacheKey = `${source}:${key}`;
+  let p = cache.get(cacheKey);
   if (!p) {
-    const url = `${TEC_BASE_URL}/${d.getFullYear()}/${key}.f16.gz`;
+    const url = `${TEC_BASE_URL}/${SOURCE_PREFIX[source]}${d.getFullYear()}/${key}.f16.gz`;
     p = fetch(url).then(async (r) => {
-      if (!r.ok) throw new Error(`TEC ${key}: HTTP ${r.status}`);
+      if (!r.ok) throw new Error(`TEC ${source} ${key}: HTTP ${r.status}`);
       return new Uint16Array(await r.arrayBuffer()); // browser inflated gzip -> 24*71*73 halfs
     });
-    cache.set(key, p);
+    cache.set(cacheKey, p);
   }
   return p;
 }
 
-export async function fetchTecHour(d: Date, hour: number): Promise<Uint16Array> {
-  const day = await fetchTecDay(d);
+export async function fetchTecHour(d: Date, hour: number, source: TecSource = 'actual'): Promise<Uint16Array> {
+  const day = await fetchTecDay(d, source);
   return day.subarray(hour * CELLS, (hour + 1) * CELLS); // one 71×73 map (view, no copy)
 }

@@ -1,13 +1,40 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { fetchTecHour, TEC_NLAT, TEC_NLON } from './tec';
+import { fetchTecDay, TEC_NLAT, TEC_NLON } from './tec';
+import type { TecMode } from './tecMode';
 
 const DAY_TEXTURE_URL = '/textures/earth-day.jpg';
 const NIGHT_TEXTURE_URL = '/textures/earth-night.jpg';
 const CLOUD_TEXTURE_URL = '/textures/earth-cloud.jpg';
 
 const SUN_DIRECTION = new THREE.Vector3(5, 3, 5).normalize();
+
+const TEC_CELLS = TEC_NLAT * TEC_NLON; // 71*73 values per hourly map
+
+// --- Coupling the displayed UT hour to the globe's spin -----------------------
+// TEC peaks near the subsolar point, so the bright crest must sit over the lit
+// hemisphere. The overlay is geo-locked to the Earth (rotates with it), so a
+// FIXED hour would let the crest drift off the dayside as the globe spins.
+// Instead we pick, each frame, the UT hour whose subsolar longitude currently
+// faces the (fixed) sun -- one full revolution then sweeps all 24 UT hours,
+// exactly as a spinning Earth advances UT in reality.
+//
+// Derivation: geographic longitude L sits at world azimuth -L; after the Earth
+// spins by angle theta its azimuth is -L - theta. The subsolar longitude for
+// UT hour h is ~ (180 - 15h) deg. Requiring that longitude to face the sun
+// (azimuth atan2(5,5) = 45 deg for SUN_DIRECTION) gives, after the theta terms
+// cancel, h = theta_deg/15 + 15. The crest then stays pinned at the sun azimuth
+// for ALL theta. HOUR_PHASE is that constant; nudge it by +/-1 to rotate the
+// crest one UT hour (15 deg) if the texture registration needs a visual tweak.
+const HOUR_PHASE = 15;
+const DEG_PER_HOUR = 15;
+
+function hourFromRotation(rotationY: number): number {
+  const deg = (rotationY * 180) / Math.PI;
+  const h = Math.floor(deg / DEG_PER_HOUR + HOUR_PHASE);
+  return ((h % 24) + 24) % 24; // wrap into 0..23
+}
 
 // JavaScript code so it needs the /* glsl */ tag to be able to render here
 const vertexShader = /* glsl */ `
@@ -91,14 +118,28 @@ const tecFragmentShader = /* glsl */ `
 
 interface GlobeProps {
   selectedDate: Date | null;
-  showTec: boolean;
+  tecMode: TecMode;
+  // Fires with the UT hour (0..23) whenever the displayed map ticks to a new hour.
+  onHourChange?: (hour: number) => void;
 }
 
-export const Globe: React.FC<GlobeProps> = ({ selectedDate, showTec }) => {
+export const Globe: React.FC<GlobeProps> = ({ selectedDate, tecMode, onHourChange }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
   // Bridges from the scene-effect (built once) to the data-effect (runs on prop change).
   const tecMatRef = useRef<THREE.ShaderMaterial | null>(null);
   const tecTexRef = useRef<THREE.DataTexture | null>(null);
+  // Whole selected day (24 * TEC_CELLS half-floats); the animation loop slices
+  // out the hour that matches the current spin. null when TEC is off.
+  const dayDataRef = useRef<Uint16Array | null>(null);
+  // Persistent CELLS-sized buffer backing tecTexRef, refilled on each hour change.
+  const hourBufRef = useRef<Uint16Array | null>(null);
+  // Which hour is currently uploaded to the texture (-1 forces a refill).
+  const shownHourRef = useRef<number>(-1);
+  // Click-to-freeze: when true, the globe (and thus the tracked hour) is paused.
+  const frozenRef = useRef<boolean>(false);
+  // Latest onHourChange, kept fresh so the once-built animation loop can call it.
+  const onHourChangeRef = useRef(onHourChange);
+  onHourChangeRef.current = onHourChange;
 
   // --- Scene: built once ---
   useEffect(() => {
@@ -179,6 +220,20 @@ export const Globe: React.FC<GlobeProps> = ({ selectedDate, showTec }) => {
     scene.add(tecMesh);
     tecMatRef.current = tecMaterial;
 
+    // One reusable half-float texture; the loop copies the active hour's slice
+    // into hourBuf and flags needsUpdate instead of reallocating each hour.
+    const hourBuf = new Uint16Array(TEC_CELLS);
+    const tecTex = new THREE.DataTexture(
+      hourBuf, TEC_NLON, TEC_NLAT, THREE.RedFormat, THREE.HalfFloatType,
+    );
+    tecTex.minFilter = THREE.LinearFilter;
+    tecTex.magFilter = THREE.LinearFilter;
+    tecTex.wrapS = THREE.RepeatWrapping;
+    tecTex.needsUpdate = true;
+    tecMaterial.uniforms.tecMap.value = tecTex;
+    tecTexRef.current = tecTex;
+    hourBufRef.current = hourBuf;
+
     // --- Controls ---
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -198,9 +253,25 @@ export const Globe: React.FC<GlobeProps> = ({ selectedDate, showTec }) => {
     // --- Animation Loop ---
     let frameId: number;
     const animate = () => {
-      earth.rotation.y += 0.0015;
+      if (!frozenRef.current) {
+        earth.rotation.y += 0.0015;
+        cloudMesh.rotation.y += 0.0018;
+      }
       tecMesh.rotation.y = earth.rotation.y; // overlay is geo-fixed to the earth
-      cloudMesh.rotation.y += 0.0018;
+
+      // Show the UT hour whose subsolar longitude faces the sun, so the crest
+      // stays over the lit hemisphere. All 24 hours are already in dayDataRef,
+      // so this is just a buffer copy on the frames where the hour ticks over.
+      const day = dayDataRef.current;
+      if (day) {
+        const h = hourFromRotation(earth.rotation.y);
+        if (h !== shownHourRef.current) {
+          shownHourRef.current = h;
+          hourBuf.set(day.subarray(h * TEC_CELLS, (h + 1) * TEC_CELLS));
+          tecTex.needsUpdate = true;
+          onHourChangeRef.current?.(h); // drive the UTC counter in the HUD
+        }
+      }
 
       controls.update();
       renderer.render(scene, camera);
@@ -208,9 +279,31 @@ export const Globe: React.FC<GlobeProps> = ({ selectedDate, showTec }) => {
     };
     animate();
 
+    // --- Click-to-freeze: a click (not a drag) on the globe toggles the spin.
+    // OrbitControls still orbits the camera on drag; we only react to taps that
+    // land on the Earth/overlay and barely moved between down and up.
+    const raycaster = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+    let downX = 0, downY = 0;
+    const onPointerDown = (e: PointerEvent) => { downX = e.clientX; downY = e.clientY; };
+    const onPointerUp = (e: PointerEvent) => {
+      if (Math.hypot(e.clientX - downX, e.clientY - downY) > 5) return; // was a drag
+      const rect = renderer.domElement.getBoundingClientRect();
+      ndc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(ndc, camera);
+      if (raycaster.intersectObjects([earth, tecMesh]).length > 0) {
+        frozenRef.current = !frozenRef.current;
+      }
+    };
+    renderer.domElement.addEventListener('pointerdown', onPointerDown);
+    renderer.domElement.addEventListener('pointerup', onPointerUp);
+
     // --- Cleanup ---
     return () => {
       cancelAnimationFrame(frameId);
+      renderer.domElement.removeEventListener('pointerdown', onPointerDown);
+      renderer.domElement.removeEventListener('pointerup', onPointerUp);
       resizeObserver.disconnect();
       controls.dispose();
       earthGeometry.dispose();
@@ -229,38 +322,43 @@ export const Globe: React.FC<GlobeProps> = ({ selectedDate, showTec }) => {
     };
   }, []);
 
-  // --- Data: react to selected date + toggle ---
+  // --- Data: react to selected date + mode (off / predicted / actual) ---
   useEffect(() => {
     const mat = tecMatRef.current;
     if (!mat) return;
 
-    if (!showTec || !selectedDate) {
+    if (tecMode === 'off' || !selectedDate) {
       mat.uniforms.uOpacity.value = 0.0;
+      dayDataRef.current = null;
+      shownHourRef.current = -1;
       return;
     }
 
+    // Load the whole day for the selected source; the animation loop slices out
+    // the hour that matches the current spin (see hourFromRotation). Re-selecting
+    // a cached (source, day) is instant because fetchTecDay memoizes it.
+    const source = tecMode === 'predicted' ? 'predicted' : 'actual';
     let cancelled = false;
-    fetchTecHour(selectedDate, 12) // noon UTC for MVP
-      .then((hour) => {
+    fetchTecDay(selectedDate, source)
+      .then((day) => {
         if (cancelled || !tecMatRef.current) return;
-        tecTexRef.current?.dispose();
-        const tex = new THREE.DataTexture(
-          hour, TEC_NLON, TEC_NLAT, THREE.RedFormat, THREE.HalfFloatType,
-        );
-        tex.minFilter = THREE.LinearFilter;
-        tex.magFilter = THREE.LinearFilter;
-        tex.wrapS = THREE.RepeatWrapping;
-        tex.needsUpdate = true;
-        tecTexRef.current = tex;
-        mat.uniforms.tecMap.value = tex;
+        dayDataRef.current = day;
+        shownHourRef.current = -1; // force the loop to refill the texture
         mat.uniforms.uOpacity.value = 0.85;
       })
-      .catch((e) => console.error('TEC load failed', e));
+      .catch((e) => {
+        // A missing day/source 404s; clear the overlay so a stale map isn't shown.
+        console.error('TEC load failed', e);
+        if (!cancelled && tecMatRef.current) {
+          mat.uniforms.uOpacity.value = 0.0;
+          dayDataRef.current = null;
+        }
+      });
 
     return () => {
       cancelled = true;
     };
-  }, [selectedDate, showTec]);
+  }, [selectedDate, tecMode]);
 
   return <div ref={mountRef} className="globe" />;
 };
