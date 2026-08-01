@@ -12,6 +12,10 @@ const SUN_DIRECTION = new THREE.Vector3(5, 3, 5).normalize();
 
 const TEC_CELLS = TEC_NLAT * TEC_NLON; // 71*73 values per hourly map
 
+// Difference mode saturates the diverging ramp at +/- this many TECU, so the
+// legend in UIPanel must use the same number.
+export const DIFF_SATURATION = 30;
+
 // --- Coupling the displayed UT hour to the globe's spin -----------------------
 // TEC peaks near the subsolar point, so the bright crest must sit over the lit
 // hemisphere. The overlay is geo-locked to the Earth (rotates with it), so a
@@ -29,6 +33,50 @@ const TEC_CELLS = TEC_NLAT * TEC_NLON; // 71*73 values per hourly map
 // crest one UT hour (15 deg) if the texture registration needs a visual tweak.
 const HOUR_PHASE = 15;
 const DEG_PER_HOUR = 15;
+
+// True if any half-float in the pack is NaN. A half NaN is exponent-all-ones
+// (0x7C00) with a nonzero mantissa; Inf (mantissa 0) never occurs in TEC, so a
+// bit test is enough and avoids decoding every value. Used ONLY to gate the
+// difference overlay (below) -- the single-source 'predicted'/'actual' render
+// paths never call this, so native predicted rendering is unaffected.
+function hasNaNHalf(a: Uint16Array): boolean {
+  for (let i = 0; i < a.length; i++) {
+    if ((a[i] & 0x7c00) === 0x7c00 && (a[i] & 0x03ff) !== 0) return true;
+  }
+  return false;
+}
+
+// Build a difference day pack (predicted - actual) in the SAME half-float
+// [24*TEC_CELLS] layout the texture expects, so it drops straight into the
+// existing dayDataRef/hourBuf pipeline. Decoding to float and re-encoding keeps
+// NaN as NaN (either side missing -> the shader discards that cell). Both inputs
+// are exactly one UT day of 71x73 maps, so lengths match.
+function diffDay(predicted: Uint16Array, actual: Uint16Array): Uint16Array {
+  const out = new Uint16Array(predicted.length);
+  for (let i = 0; i < out.length; i++) {
+    const d = THREE.DataUtils.fromHalfFloat(predicted[i]) -
+              THREE.DataUtils.fromHalfFloat(actual[i]);
+    out[i] = THREE.DataUtils.toHalfFloat(d); // NaN - x = NaN, preserved as a half NaN
+  }
+  return out;
+}
+
+// The globe's outermost visible shell is the TEC overlay sphere (radius 1.01);
+// fit to that plus breathing room so nothing ever touches the screen edge.
+const GLOBE_FIT_RADIUS = 1.01;
+const GLOBE_FIT_MARGIN = 1.18; // ~18% padding around the globe
+
+// Camera distance at which a sphere of GLOBE_FIT_RADIUS just fits inside the
+// frustum's *limiting* dimension — vertical on wide screens, horizontal on tall/
+// narrow ones — so the globe is never cropped at any aspect ratio. A sphere of
+// radius r at distance d subtends a half-angle asin(r/d); set that equal to the
+// smaller of the vertical/horizontal half-FOVs and solve for d = r / sin(half).
+function globeFitDistance(camera: THREE.PerspectiveCamera): number {
+  const vHalf = THREE.MathUtils.degToRad(camera.fov) / 2;
+  const hHalf = Math.atan(Math.tan(vHalf) * camera.aspect);
+  const half = Math.min(vHalf, hHalf);
+  return (GLOBE_FIT_RADIUS * GLOBE_FIT_MARGIN) / Math.sin(half);
+}
 
 function hourFromRotation(rotationY: number): number {
   const deg = (rotationY * 180) / Math.PI;
@@ -81,7 +129,21 @@ const tecFragmentShader = /* glsl */ `
   uniform float uMax;
   uniform float uOpacity;
   uniform float uLonOffset;
+  uniform float uDiverging;   // >0.5 => render as signed error (blue<0<red)
   varying vec2 vUv;
+
+  // Diverging blue->white->red ramp for the difference (predicted - actual)
+  // overlay. s in [-1,1]: negative (model too low) = blue, 0 = near-white,
+  // positive (model too high) = red. sRGB space (linearised on output, like ramp).
+  // pow(|s|, 0.6) lifts the mid-range so small/moderate errors read as saturated
+  // colour instead of washed-out pastel; the .css legend mirrors the same curve.
+  vec3 diverging(float s) {
+    vec3 neg = vec3(0.09, 0.36, 0.93);   // strong blue
+    vec3 mid = vec3(0.97, 0.97, 0.97);
+    vec3 pos = vec3(0.93, 0.12, 0.10);   // strong red
+    float m = pow(clamp(abs(s), 0.0, 1.0), 0.6);
+    return s < 0.0 ? mix(mid, neg, m) : mix(mid, pos, m);
+  }
 
   // Inferno colormap (matplotlib), Matt Zucker's 6th-order polynomial fit.
   // Perceptually uniform + monotonic luminance + colorblind-safe, so equal TEC
@@ -103,15 +165,26 @@ const tecFragmentShader = /* glsl */ `
     vec2 uv = vec2(fract(vUv.x + uLonOffset), 1.0 - vUv.y);
     float v = texture2D(tecMap, uv).r;
     if (v != v) discard;                       // NaN (missing) -> transparent
-    float t = clamp((v - uMin) / (uMax - uMin), 0.0, 1.0);
 
-    // Fade the low end so quiet regions let the Earth show through and only the
-    // TEC crests read as solid. Flat opacity would veil the whole night side.
-    float a = uOpacity * smoothstep(0.0, 0.35, t);
+    if (uDiverging > 0.5) {
+      // Difference mode: v is signed error TECU. Saturate at +/-uMax; fade the
+      // near-zero band so only meaningful over/under-predictions read as solid.
+      float s = clamp(v / uMax, -1.0, 1.0);
+      // Reach full opacity by ~40% of range so moderate errors pop; only true
+      // near-zero noise stays transparent.
+      float a = uOpacity * smoothstep(0.04, 0.4, abs(s));
+      gl_FragColor = vec4(pow(clamp(diverging(s), 0.0, 1.0), vec3(2.2)), a);
+    } else {
+      float t = clamp((v - uMin) / (uMax - uMin), 0.0, 1.0);
 
-    // ramp() is sRGB; the renderer works in linear + re-encodes via
-    // colorspace_fragment, so linearise here to avoid a double gamma encode.
-    gl_FragColor = vec4(pow(clamp(ramp(t), 0.0, 1.0), vec3(2.2)), a);
+      // Fade the low end so quiet regions let the Earth show through and only the
+      // TEC crests read as solid. Flat opacity would veil the whole night side.
+      float a = uOpacity * smoothstep(0.0, 0.35, t);
+
+      // ramp() is sRGB; the renderer works in linear + re-encodes via
+      // colorspace_fragment, so linearise here to avoid a double gamma encode.
+      gl_FragColor = vec4(pow(clamp(ramp(t), 0.0, 1.0), vec3(2.2)), a);
+    }
     #include <colorspace_fragment>
   }
 `;
@@ -156,7 +229,7 @@ export const Globe: React.FC<GlobeProps> = ({ selectedDate, tecMode, onHourChang
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
-    camera.position.set(0, 0, 3);
+    camera.position.set(0, 0, globeFitDistance(camera)); // fit width+height, uncropped
 
     // --- Sunlight source for standard material lighting (clouds) ---
     const sunLight = new THREE.DirectionalLight(0xffffff, 10);
@@ -210,6 +283,7 @@ export const Globe: React.FC<GlobeProps> = ({ selectedDate, tecMode, onHourChang
         uMax: { value: 100.0 },
         uOpacity: { value: 0.0 },
         uLonOffset: { value: 0.0 },
+        uDiverging: { value: 0.0 },
       },
       vertexShader: tecVertexShader,
       fragmentShader: tecFragmentShader,
@@ -239,7 +313,7 @@ export const Globe: React.FC<GlobeProps> = ({ selectedDate, tecMode, onHourChang
     controls.enableDamping = true;
     controls.enablePan = false;
     controls.minDistance = 1.5;
-    controls.maxDistance = 6;
+    controls.maxDistance = 12; // tall/narrow screens need the camera further back
 
     const resizeObserver = new ResizeObserver(() => {
       const w = mount.clientWidth;
@@ -247,6 +321,10 @@ export const Globe: React.FC<GlobeProps> = ({ selectedDate, tecMode, onHourChang
       renderer.setSize(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
+      // Re-fit so the globe stays fully on-screen at the new aspect ratio.
+      // setLength keeps the user's current orbit direction, only the distance.
+      camera.position.setLength(globeFitDistance(camera));
+      controls.update();
     });
     resizeObserver.observe(mount);
 
@@ -334,12 +412,31 @@ export const Globe: React.FC<GlobeProps> = ({ selectedDate, tecMode, onHourChang
       return;
     }
 
-    // Load the whole day for the selected source; the animation loop slices out
-    // the hour that matches the current spin (see hourFromRotation). Re-selecting
-    // a cached (source, day) is instant because fetchTecDay memoizes it.
-    const source = tecMode === 'predicted' ? 'predicted' : 'actual';
+    // Difference mode needs BOTH sources (to subtract); the single-source modes
+    // fetch just one. Each fetchTecDay is memoized, so 'difference' reuses the
+    // same day packs already cached by the 'actual'/'predicted' views.
+    mat.uniforms.uDiverging.value = tecMode === 'difference' ? 1.0 : 0.0;
+    mat.uniforms.uMax.value = tecMode === 'difference' ? DIFF_SATURATION : 100.0;
+
     let cancelled = false;
-    fetchTecDay(selectedDate, source)
+    const load =
+      tecMode === 'difference'
+        ? Promise.all([
+            fetchTecDay(selectedDate, 'actual'),
+            fetchTecDay(selectedDate, 'predicted'),
+          ]).then(([actual, predicted]) => {
+            // Gate the DIFFERENCE overlay only: if the predicted map has any NaN,
+            // don't render a partial/misleading difference for this day. This does
+            // not affect the 'predicted' mode above, which renders the same pack
+            // natively regardless of NaN.
+            if (hasNaNHalf(predicted)) {
+              throw new Error('predicted map incomplete for this day; difference skipped');
+            }
+            return diffDay(predicted, actual);
+          })
+        : fetchTecDay(selectedDate, tecMode === 'predicted' ? 'predicted' : 'actual');
+
+    load
       .then((day) => {
         if (cancelled || !tecMatRef.current) return;
         dayDataRef.current = day;

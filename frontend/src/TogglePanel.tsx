@@ -43,6 +43,14 @@ const TogglePanel = ({
         >
           Actual
         </button>
+        <button
+          type="button"
+          className={`tec-switch__option${mode === 'difference' ? ' is-active' : ''}`}
+          aria-pressed={mode === 'difference'}
+          onClick={() => onModeChange('difference')}
+        >
+          Difference
+        </button>
       </div>
     </div>
   );

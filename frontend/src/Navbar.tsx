@@ -1,8 +1,16 @@
 import React from 'react';
+import { Link, NavLink } from 'react-router-dom';
 import './Navbar.css';
 
 // TODO: replace these with the real destinations
 const GITHUB_URL = 'https://github.com/hsamala688/ionocast';
+
+// Internal (client-routed) destinations. `short` is the compact label shown on
+// mobile so long items (e.g. "How We Made This") don't overflow the bar.
+const pages: { label: string; short?: string; to: string }[] = [
+  { label: 'Globe', to: '/' },
+  { label: 'How We Made This', short: 'How', to: '/how' },
+];
 
 const GitHubIcon: React.FC = () => (
   <svg
@@ -31,19 +39,35 @@ const links: NavLink[] = [
 export const Navbar: React.FC = () => {
   return (
     <nav className="navbar">
-      <div className="navbar__brand">Ionocast</div>
+      <Link to="/" className="navbar__brand">Ionocast</Link>
       <ul className="navbar__links">
+        {pages.map((page) => (
+          <li key={page.to}>
+            <NavLink
+              to={page.to}
+              end={page.to === '/'}
+              className={({ isActive }) =>
+                `navbar__link${isActive ? ' navbar__link--active' : ''}`
+              }
+            >
+              <span className="navbar__label navbar__label--full">{page.label}</span>
+              <span className="navbar__label navbar__label--short">{page.short ?? page.label}</span>
+            </NavLink>
+          </li>
+        ))}
         {links.map((link) => (
           <li key={link.label}>
             <a
               href={link.href}
               className="navbar__link"
+              aria-label={link.label}
               {...(link.external
                 ? { target: '_blank', rel: 'noopener noreferrer' }
                 : {})}
             >
               {link.icon}
-              {link.label}
+              {/* Text hides on mobile (icon-only); aria-label keeps the name. */}
+              <span className="navbar__label navbar__label--full">{link.label}</span>
             </a>
           </li>
         ))}

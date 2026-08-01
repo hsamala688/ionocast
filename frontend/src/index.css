@@ -1,3 +1,9 @@
+/* Shared responsive breakpoints — use these exact thresholds everywhere so the
+   layout switches consistently (CSS can't read custom props inside @media, so
+   they live here as the documented convention, not variables):
+     tablet   @media (max-width: 1023px)
+     mobile   @media (max-width:  767px)
+   Sizes prefer clamp()/dvh over raw vw/vh so nothing collapses or overflows. */
 :root {
   color-scheme: dark;
 }

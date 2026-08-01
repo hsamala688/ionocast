@@ -1,29 +1,22 @@
-import React, { useState } from 'react';
-import { UIPanel } from './UIPanel';
+import React from 'react';
+import { Routes, Route } from 'react-router-dom';
 import { StarBackground } from './StarBackground';
 import { Navbar } from './Navbar';
-import { Globe } from './Globe';
-import { UtcClock } from './UtcClock';
-import type { TecMode } from './tecMode';
-import './Globe.css';
+import { Home } from './Home';
+import { HowWeMadeThis } from './HowWeMadeThis';
 
+// App is the shell: shared chrome (star background + navbar) sits above the
+// router, and each route renders its own page. Per-page state lives in the page
+// component (e.g. Home owns the globe/panel state).
 const App: React.FC = () => {
-  // Shared state: the panel sets these, the globe reads them.
-  const [selectedDate, setSelectedDate] = useState<Date | null>(new Date(2023, 0, 6));
-  const [tecMode, setTecMode] = useState<TecMode>('off');
-  const [utcHour, setUtcHour] = useState(12); // hour of the map on the globe
-
   return (
     <div>
       <StarBackground />
       <Navbar />
-      {tecMode !== 'off' && <UtcClock hour={utcHour} />}
-      <Globe selectedDate={selectedDate} tecMode={tecMode} onHourChange={setUtcHour} />
-      <UIPanel
-        onSelectDate={setSelectedDate}
-        tecMode={tecMode}
-        onTecModeChange={setTecMode}
-      />
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/how" element={<HowWeMadeThis />} />
+      </Routes>
     </div>
   );
 };

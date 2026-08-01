@@ -1,20 +1,23 @@
 .ui-panel {
-  /* 1. POSITIONING: Anchor to the right and vertically center */
+  /* 1. POSITIONING: a collapsible drawer at ALL screen sizes. Pinned to the
+     right edge below the 60px navbar and slid off-screen until opened (toggled
+     by .drawer-toggle). The globe stays centred and full-viewport behind it. */
   position: fixed;
-  right: 5vw;                 /* Distance from right edge (adjust as needed) */
-  top: 50%;                   /* Move top edge to center of viewport */
-  transform: translateY(-50%); /* Shift up by half its height to perfectly center */
+  top: 60px;
+  right: 0;
+  height: calc(100dvh - 60px);
+  transform: translateX(100%);        /* closed: fully off-screen */
+  transition: transform 0.28s ease;
 
   /* 2. SIZING & LAYOUT */
-  width: 35vw;
-  max-height: 80vh;           /* Prevents overflow on smaller screens */
-  overflow-y: auto;           /* Keep content (calendar + toggles) inside the panel */
+  width: min(90vw, 400px);    /* comfortable on phones, capped on large screens */
+  overflow-y: auto;           /* content (calendar + toggles) scrolls within */
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 16px;
   padding: 24px;
-  z-index: 10;
+  z-index: 50;                /* above the scrim (40); navbar (70) stays on top */
 
   /* 3. TRANSPARENCY & GLASS EFFECT */
   /* Lowered alpha from 0.75 -> 0.35 for higher transparency */
@@ -24,8 +27,7 @@
   
   /* 4. BORDERS & STYLING */
   color: #ffffff;
-  border: 1px solid rgba(255, 255, 255, 0.15); /* Clean shorthand for all 4 sides */
-  border-radius: 12px;                          /* Subtle rounded edges fit glass UI well */
+  border-left: 1px solid rgba(255, 255, 255, 0.15); /* only the drawer's inner edge */
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
@@ -158,6 +160,29 @@
   );
 }
 
+/* Difference overlay: diverging blue -> white -> red, mirroring diverging() in
+   the Globe shader (strong endpoints + pow(0.6) mid-range lift, so equal legend
+   positions match on-globe colours). Blue = predicted below actual, red = above.
+   No border/radius so the saturated blue/red endpoints reach the true edge --
+   the inherited 1px translucent-white border was painting over the ends and
+   reading as clipped colour. */
+.tec-legend__bar--diff {
+  border: none;
+  border-radius: 0;
+  background: linear-gradient(
+    to right,
+    #175ded 0%,
+    #3a75ef 12.5%,
+    #6391f0 25%,
+    #96b4f3 37.5%,
+    #f7f7f7 50%,
+    #f39997 62.5%,
+    #f06865 75%,
+    #ef413d 87.5%,
+    #ed1f1a 100%
+  );
+}
+
 .tec-legend__ticks {
   display: flex;
   justify-content: space-between;
@@ -179,4 +204,44 @@
   line-height: 1.4;
   color: #8a8a93;
   font-style: italic;
+}
+
+/* ==========================================================================
+   Drawer controls (ALL screen sizes). The .ui-panel above is the drawer; below
+   are its toggle button and the scrim shown behind it while open. The globe
+   renders centred and full-viewport; the drawer overlays the right edge only
+   when opened. Layering: scrim 40 < panel 50 < toggle 60 < navbar 70.
+   ========================================================================== */
+
+.ui-panel.ui-panel--open {
+  transform: translateX(0);          /* slide in */
+}
+
+/* Floating hamburger/close button, below the navbar at the top-right. */
+.drawer-toggle {
+  position: fixed;
+  top: 72px;
+  right: 16px;
+  z-index: 60;                       /* stays tappable on top of the open panel */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  color: #ffffff;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(10, 10, 12, 0.45);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  cursor: pointer;
+}
+
+/* Dim + tap-to-close layer behind the open drawer (rendered only when open). */
+.drawer-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;                       /* above the globe, below the panel & navbar */
+  background: rgba(0, 0, 0, 0.5);
 }

@@ -3,7 +3,9 @@
   top: 0;
   left: 0;
   right: 0;
-  z-index: 10;
+  /* Above the mobile drawer (50), scrim (40) and toggle (60) so the bar stays
+     visible and tappable when the drawer is open (see UIPanel.css). */
+  z-index: 70;
 
   display: flex;
   align-items: center;
@@ -23,6 +25,7 @@
   font-size: 1.25rem;
   font-weight: 600;
   letter-spacing: 0.02em;
+  text-decoration: none;
 }
 
 .navbar__links {
@@ -48,6 +51,45 @@
   color: #ffffff;
 }
 
+.navbar__link--active {
+  color: #ffffff;
+  font-weight: 600;
+}
+
 .navbar__icon {
   display: block;
+}
+
+/* Full labels show by default; the compact ones are mobile-only. */
+.navbar__label--short {
+  display: none;
+}
+
+/* Mobile: swap to short labels, drop GitHub to icon-only, and tighten spacing
+   so brand + links fit a ~360px bar without wrapping. Breakpoint matches the
+   767px convention documented in index.css. */
+@media (max-width: 767px) {
+  .navbar {
+    padding: 0 16px;
+  }
+
+  .navbar__brand {
+    font-size: 1.1rem;
+  }
+
+  .navbar__links {
+    gap: 16px;
+  }
+
+  .navbar__link {
+    font-size: 0.9rem;
+  }
+
+  .navbar__label--full {
+    display: none;
+  }
+
+  .navbar__label--short {
+    display: inline;
+  }
 }

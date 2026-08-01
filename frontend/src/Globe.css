@@ -1,12 +1,12 @@
-.layout {
-  display: flex;
-  align-items: stretch;
-}
-
+/* The globe is a centred, full-viewport background canvas at every screen size.
+   The three.js sphere renders at the canvas centre, so filling the viewport
+   centres the globe on screen. The controls live in a collapsible drawer that
+   overlays the right edge on demand (see UIPanel.css), so the globe no longer
+   needs to dodge a docked panel. Apparent globe size is now controlled in one
+   place — the camera distance/FOV in Globe.tsx — not via CSS width. */
 .globe {
-  position: absolute; /* Add this line */
-  width: 65vw;
-  height: 100vh;
-  transform: translateY(45px);
-  left: -2vw;
+  position: absolute;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;   /* dvh: no jump when mobile browser chrome shows/hides */
 }
