@@ -1,10 +1,10 @@
-/* "How We Made This" — two-column scaffold. Sits over the shared star
-   background, so the page is transparent with glass cards.
-   Right column = pipeline flow; left column = fill-in notes aligned per stage. */
+/* "How We Made This" — one unified vertical flow. Sits over the shared star
+   background, so the page is transparent with glass cards. Each stage is a
+   single node (what it does + why) threaded onto a connecting spine. */
 .hw {
   position: relative;
   z-index: 1;
-  max-width: 1080px;
+  max-width: 860px;
   margin: 0 auto;
   padding: 96px 24px 120px; /* top clears the 60px fixed navbar */
   color: #ffffff;
@@ -32,40 +32,19 @@
   line-height: 1.6;
 }
 
-/* --- Column key: labels the two columns once, above the grid --- */
-.hw-colkey {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  column-gap: 24px;
-  margin-bottom: 12px;
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 1.5px;
-  color: rgba(255, 255, 255, 0.4);
+/* --- The unified flow --- */
+.hw-flow {
+  display: flex;
+  flex-direction: column;
 }
 
-.hw-colkey__right {
-  color: #7fb0ff;
-}
-
-/* --- The two-column pipeline grid ---
-   Left cells are notes, right cells are stage cards. Headers span both. */
-.hw-pipeline {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  column-gap: 24px;
-  row-gap: 16px;
-  align-items: stretch; /* note + card in a row match height, so they line up */
-}
-
-/* --- Section header (spans both columns) --- */
+/* --- Section header --- */
 .hw-sectionhead {
-  grid-column: 1 / -1;
   display: grid;
   grid-template-columns: auto 1fr;
   align-items: baseline;
   column-gap: 14px;
-  margin-top: 20px;
+  margin-top: 36px;
   padding-bottom: 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
 }
@@ -90,9 +69,33 @@
   color: rgba(255, 255, 255, 0.55);
 }
 
-/* --- Layer header (spans both columns), medallion-colored --- */
+/* --- Track: a section's nodes, threaded onto a continuous spine --- */
+.hw-track {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 20px;
+  padding-left: 44px; /* room for the spine + markers */
+}
+
+/* The spine: a vertical rail running through the section's nodes. */
+.hw-track::before {
+  content: '';
+  position: absolute;
+  left: 20px;
+  top: 12px;
+  bottom: 12px;
+  width: 2px;
+  background: linear-gradient(
+    180deg,
+    rgba(127, 176, 255, 0.55),
+    rgba(127, 176, 255, 0.1)
+  );
+}
+
+/* --- Layer header (medallion-colored), sits inline in the track --- */
 .hw-layerhead {
-  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -120,70 +123,53 @@
   color: rgba(255, 255, 255, 0.5);
 }
 
-/* --- Left column: fill-in note, aligned to its stage card --- */
-.hw-note {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 16px;
-  border: 1px dashed rgba(255, 255, 255, 0.2);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.02);
+/* --- A unified flow node: marker on the spine + the combined card --- */
+.hw-node {
+  --accent: #1168ea; /* default flow accent; overridden per medallion layer */
+  position: relative;
 }
 
-.hw-note__label {
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: #6f6f78;
+.hw-node--bronze { --accent: #cd7f45; }
+.hw-node--silver { --accent: #b7bcc4; }
+.hw-node--gold   { --accent: #d9b24a; }
+
+/* Node marker sitting on the spine (spine at track x=20; node starts at x=44). */
+.hw-node__marker {
+  position: absolute;
+  left: -31px;
+  top: 20px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px rgba(8, 10, 20, 0.65);
 }
 
-.hw-note__placeholder {
-  margin: 0;
-  font-size: 0.85rem;
-  line-height: 1.45;
-  font-style: italic;
-  color: rgba(255, 255, 255, 0.35);
-}
-
-/* Filled-in note text (once you add a `note` to a stage). */
-.hw-note__body {
-  font-size: 0.85rem;
-  line-height: 1.5;
-  color: rgba(255, 255, 255, 0.82);
-}
-
-.hw-note__body p { margin: 0 0 8px; }
-.hw-note__body p:last-child { margin-bottom: 0; }
-.hw-note__body ul { margin: 0; padding-left: 18px; }
-.hw-note__body li { margin-bottom: 4px; }
-
-/* --- Right column: stage card (the flow) --- */
-.hw-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 16px;
-  background: rgba(10, 10, 12, 0.35);
+.hw-node__card {
+  padding: 18px 20px;
+  background: rgba(10, 10, 12, 0.4);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-left: 3px solid #1168ea; /* flow rail; overridden per medallion layer */
+  border-left: 3px solid var(--accent);
   border-radius: 12px;
 }
 
-.hw-card--bronze { border-left-color: #cd7f45; }
-.hw-card--silver { border-left-color: #b7bcc4; }
-.hw-card--gold   { border-left-color: #d9b24a; }
+/* Header: title + optional CLI command chip */
+.hw-node__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
 
-.hw-card__title {
+.hw-node__title {
   margin: 0;
-  font-size: 1rem;
+  font-size: 1.05rem;
   font-weight: 600;
 }
 
-.hw-card__cmd {
-  align-self: flex-start;
+.hw-node__cmd {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.75rem;
   color: #7fb0ff;
@@ -193,29 +179,66 @@
   padding: 2px 7px;
 }
 
-.hw-card__desc {
+/* Tiny eyebrow label that names each half of the node. */
+.hw-node__eyebrow {
+  display: block;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: rgba(255, 255, 255, 0.4);
+  margin-bottom: 4px;
+}
+
+.hw-node__eyebrow--why {
+  color: #7fb0ff;
+}
+
+/* "What it does" — the pipeline step, brighter. */
+.hw-node__what {
+  margin-top: 12px;
+}
+
+.hw-node__desc {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* "Why / choices" — the reasoning, separated by a hairline, muted. */
+.hw-node__why {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.hw-node__note {
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.hw-node__note p { margin: 0 0 8px; }
+.hw-node__note p:last-child { margin-bottom: 0; }
+.hw-node__note ul { margin: 0; padding-left: 18px; }
+.hw-node__note li { margin-bottom: 4px; }
+
+.hw-node__placeholder {
   margin: 0;
   font-size: 0.85rem;
-  line-height: 1.45;
-  color: rgba(255, 255, 255, 0.7);
+  line-height: 1.5;
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.35);
 }
 
-/* --- Bottom: challenges & mistakes, empty scaffold --- */
-.hw-challenges {
-  margin-top: 8px;
+/* Standalone placeholder (e.g. the open Challenges node) gets some breathing room. */
+.hw-node__placeholder--block {
+  min-height: 120px;
 }
 
-.hw-challenges__box {
-  margin-top: 16px;
-  min-height: 200px;
-  padding: 24px;
-  border: 1px dashed rgba(255, 255, 255, 0.2);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.02);
-}
-
-/* --- Responsive: stack to one column; each note sits above its card --- */
+/* --- Responsive: tighten the spine gutter on narrow screens --- */
 @media (max-width: 720px) {
-  .hw-colkey { display: none; }
-  .hw-pipeline { grid-template-columns: 1fr; }
+  .hw-track { padding-left: 32px; }
+  .hw-track::before { left: 12px; }
+  .hw-node__marker { left: -27px; }
 }

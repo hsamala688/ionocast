@@ -8,7 +8,26 @@ const DAY_TEXTURE_URL = '/textures/earth-day.jpg';
 const NIGHT_TEXTURE_URL = '/textures/earth-night.jpg';
 const CLOUD_TEXTURE_URL = '/textures/earth-cloud.jpg';
 
-const SUN_DIRECTION = new THREE.Vector3(5, 3, 5).normalize();
+// Sun in the equatorial (horizontal) plane so the 23.44° seasonal tilt lives
+// entirely in the Earth's axis (see the tilt effect below). Keeping X=Z=5 holds
+// the azimuth at 45°, so the HOUR_PHASE hour-tracking derivation is unaffected.
+const SUN_DIRECTION = new THREE.Vector3(5, 0, 5).normalize();
+
+// Earth's axial tilt is constant; only the direction it leans relative to the
+// (fixed) sun changes with the season. AXIAL_TILT is that fixed magnitude;
+// SUN_AZIMUTH is the sun's bearing in the XZ plane (from +Z toward +X), which
+// the lean tracks toward at the June solstice.
+const AXIAL_TILT = THREE.MathUtils.degToRad(23.44);
+const SUN_AZIMUTH = Math.atan2(SUN_DIRECTION.x, SUN_DIRECTION.z);
+
+// Sun's ecliptic longitude, ~0 at the vernal equinox (~Mar 20, DOY 79) and
+// advancing 360°/year. Enough to drive a visually correct seasonal tilt; this
+// is not a precise ephemeris. Uses UTC to match the rest of the pipeline.
+function eclipticLongitude(date: Date): number {
+  const start = Date.UTC(date.getUTCFullYear(), 0, 0);
+  const doy = (date.getTime() - start) / 86400000;
+  return ((doy - 79) / 365.24) * 2 * Math.PI; // radians
+}
 
 const TEC_CELLS = TEC_NLAT * TEC_NLON; // 71*73 values per hourly map
 
@@ -24,13 +43,19 @@ export const DIFF_SATURATION = 30;
 // faces the (fixed) sun -- one full revolution then sweeps all 24 UT hours,
 // exactly as a spinning Earth advances UT in reality.
 //
-// Derivation: geographic longitude L sits at world azimuth -L; after the Earth
-// spins by angle theta its azimuth is -L - theta. The subsolar longitude for
-// UT hour h is ~ (180 - 15h) deg. Requiring that longitude to face the sun
-// (azimuth atan2(5,5) = 45 deg for SUN_DIRECTION) gives, after the theta terms
-// cancel, h = theta_deg/15 + 15. The crest then stays pinned at the sun azimuth
-// for ALL theta. HOUR_PHASE is that constant; nudge it by +/-1 to rotate the
-// crest one UT hour (15 deg) if the texture registration needs a visual tweak.
+// We derive the hour from the sun's LOCAL azimuth in the Earth's own frame,
+// i.e. the geographic meridian currently facing the sun. Doing it from the local
+// sun direction (not the spin angle alone) matters once the Earth is tilted:
+// spinning about the tilted axis makes the subsolar longitude advance
+// non-uniformly with spin (an obliquity / equation-of-time effect), so a purely
+// linear map would let the crest lead and lag the true subsolar point within a
+// revolution. Deriving from the local sun direction cancels that automatically
+// and reduces exactly to the old linear mapping when the tilt is zero.
+//
+// Calibration: at zero tilt the sun's local azimuth is SUN_AZIMUTH - theta, so
+// the previous h = theta/15 + HOUR_PHASE is equivalent to
+// h = HOUR_PHASE + SUN_AZIMUTH/15 - localAzimuth/15. HOUR_PHASE stays the visual
+// nudge (+/-1 rotates the crest one UT hour) if texture registration needs it.
 const HOUR_PHASE = 15;
 const DEG_PER_HOUR = 15;
 
@@ -78,9 +103,21 @@ function globeFitDistance(camera: THREE.PerspectiveCamera): number {
   return (GLOBE_FIT_RADIUS * GLOBE_FIT_MARGIN) / Math.sin(half);
 }
 
-function hourFromRotation(rotationY: number): number {
-  const deg = (rotationY * 180) / Math.PI;
-  const h = Math.floor(deg / DEG_PER_HOUR + HOUR_PHASE);
+// Sun azimuth in degrees for the calibration below (from +Z toward +X).
+const SUN_AZIMUTH_DEG = THREE.MathUtils.radToDeg(SUN_AZIMUTH);
+// Scratch objects reused each frame so the loop allocates nothing.
+const _invQuat = new THREE.Quaternion();
+const _localSun = new THREE.Vector3();
+
+// UT hour whose subsolar meridian faces the sun, given the Earth's full world
+// orientation (parent tilt * spin). Transforms the fixed world sun direction
+// into the Earth's local frame and reads its azimuth, so it stays correct under
+// the seasonal axial tilt (see the comment block above hourFromRotation's old
+// linear form). Reduces to h = theta/15 + HOUR_PHASE when the tilt is zero.
+function subsolarHour(worldQuat: THREE.Quaternion): number {
+  _localSun.copy(SUN_DIRECTION).applyQuaternion(_invQuat.copy(worldQuat).invert());
+  const localAzDeg = (Math.atan2(_localSun.x, _localSun.z) * 180) / Math.PI;
+  const h = Math.floor(HOUR_PHASE + SUN_AZIMUTH_DEG / DEG_PER_HOUR - localAzDeg / DEG_PER_HOUR);
   return ((h % 24) + 24) % 24; // wrap into 0..23
 }
 
@@ -200,6 +237,8 @@ export const Globe: React.FC<GlobeProps> = ({ selectedDate, tecMode, onHourChang
   const mountRef = useRef<HTMLDivElement | null>(null);
   // Bridges from the scene-effect (built once) to the data-effect (runs on prop change).
   const tecMatRef = useRef<THREE.ShaderMaterial | null>(null);
+  // The tilt frame holding earth + clouds + overlay; oriented per selectedDate.
+  const tiltGroupRef = useRef<THREE.Group | null>(null);
   const tecTexRef = useRef<THREE.DataTexture | null>(null);
   // Whole selected day (24 * TEC_CELLS half-floats); the animation loop slices
   // out the hour that matches the current spin. null when TEC is off.
@@ -248,6 +287,13 @@ export const Globe: React.FC<GlobeProps> = ({ selectedDate, tecMode, onHourChang
     nightTexture.colorSpace = THREE.SRGBColorSpace;
     cloudTexture.colorSpace = THREE.SRGBColorSpace;
 
+    // Tilt frame: earth + clouds + overlay live inside this group so the seasonal
+    // axial tilt applies to all three together. The per-mesh spin stays on the
+    // children, so earth.rotation.y remains the pure spin phase for hour tracking.
+    const earthSystem = new THREE.Group();
+    scene.add(earthSystem);
+    tiltGroupRef.current = earthSystem;
+
     // Earth
     const earthGeometry = new THREE.SphereGeometry(1, 64, 64);
     const earthMaterial = new THREE.ShaderMaterial({
@@ -260,7 +306,7 @@ export const Globe: React.FC<GlobeProps> = ({ selectedDate, tecMode, onHourChang
       fragmentShader,
     });
     const earth = new THREE.Mesh(earthGeometry, earthMaterial);
-    scene.add(earth);
+    earthSystem.add(earth);
 
     // Clouds
     const cloudGeometry = new THREE.SphereGeometry(1.005, 64, 64);
@@ -272,7 +318,7 @@ export const Globe: React.FC<GlobeProps> = ({ selectedDate, tecMode, onHourChang
       depthWrite: false,
     });
     const cloudMesh = new THREE.Mesh(cloudGeometry, cloudMaterial);
-    scene.add(cloudMesh);
+    earthSystem.add(cloudMesh);
 
     // TEC overlay (translucent sphere just above the surface; data set later)
     const tecGeometry = new THREE.SphereGeometry(1.01, 64, 64);
@@ -291,7 +337,7 @@ export const Globe: React.FC<GlobeProps> = ({ selectedDate, tecMode, onHourChang
       depthWrite: false,
     });
     const tecMesh = new THREE.Mesh(tecGeometry, tecMaterial);
-    scene.add(tecMesh);
+    earthSystem.add(tecMesh);
     tecMatRef.current = tecMaterial;
 
     // One reusable half-float texture; the loop copies the active hour's slice
@@ -330,6 +376,7 @@ export const Globe: React.FC<GlobeProps> = ({ selectedDate, tecMode, onHourChang
 
     // --- Animation Loop ---
     let frameId: number;
+    const worldQuat = new THREE.Quaternion(); // reused: earth's tilt * spin each frame
     const animate = () => {
       if (!frozenRef.current) {
         earth.rotation.y += 0.0015;
@@ -342,7 +389,11 @@ export const Globe: React.FC<GlobeProps> = ({ selectedDate, tecMode, onHourChang
       // so this is just a buffer copy on the frames where the hour ticks over.
       const day = dayDataRef.current;
       if (day) {
-        const h = hourFromRotation(earth.rotation.y);
+        // Combine the (static) seasonal tilt with the current spin, then read the
+        // hour from the true local sun direction so the crest tracks the subsolar
+        // point even about the tilted axis.
+        worldQuat.multiplyQuaternions(earthSystem.quaternion, earth.quaternion);
+        const h = subsolarHour(worldQuat);
         if (h !== shownHourRef.current) {
           shownHourRef.current = h;
           hourBuf.set(day.subarray(h * TEC_CELLS, (h + 1) * TEC_CELLS));
@@ -395,10 +446,35 @@ export const Globe: React.FC<GlobeProps> = ({ selectedDate, tecMode, onHourChang
       cloudTexture.dispose();
       tecTexRef.current?.dispose();
       tecMatRef.current = null;
+      tiltGroupRef.current = null;
       renderer.dispose();
       mount.removeChild(renderer.domElement);
     };
   }, []);
+
+  // --- Seasonal axial tilt: orient the tilt frame for the selected date ---
+  // The 23.44° tilt magnitude is constant; only the direction it leans relative
+  // to the fixed sun changes. It leans toward the sun at the June solstice
+  // (λ = 90°), away in December (λ = 270°), and sideways at the equinoxes, so the
+  // subsolar latitude comes out as the real solar declination.
+  useEffect(() => {
+    const sys = tiltGroupRef.current;
+    if (!sys) return;
+    const date = selectedDate ?? new Date();
+    const lambda = eclipticLongitude(date);
+    const leanAzimuth = SUN_AZIMUTH + (lambda - Math.PI / 2);
+
+    // Tip the pole toward `leanAzimuth` with a SINGLE rotation about a horizontal
+    // axis. A separate rotation about world Y (to "swing" the lean) would also
+    // spin the globe about the vertical, which desyncs the sun-facing-meridian
+    // hour tracking and drifts the TEC crest onto the night side. A pure
+    // horizontal-axis tilt changes only latitude, leaving longitude registration
+    // (and thus HOUR_PHASE) intact. Axis is horizontal, perpendicular to the lean
+    // direction; rotating +Y about it by AXIAL_TILT leans the north pole toward
+    // azimuth `leanAzimuth`.
+    const axis = new THREE.Vector3(Math.cos(leanAzimuth), 0, -Math.sin(leanAzimuth));
+    sys.quaternion.setFromAxisAngle(axis, AXIAL_TILT);
+  }, [selectedDate]);
 
   // --- Data: react to selected date + mode (off / predicted / actual) ---
   useEffect(() => {
