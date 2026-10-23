@@ -218,23 +218,13 @@
   color: rgba(255, 255, 255, 0.65);
 }
 
+.hw-node__desc p { margin: 0 0 8px; }
+.hw-node__desc p:last-child { margin-bottom: 0; }
+
 .hw-node__note p { margin: 0 0 8px; }
 .hw-node__note p:last-child { margin-bottom: 0; }
 .hw-node__note ul { margin: 0; padding-left: 18px; }
 .hw-node__note li { margin-bottom: 4px; }
-
-.hw-node__placeholder {
-  margin: 0;
-  font-size: 0.85rem;
-  line-height: 1.5;
-  font-style: italic;
-  color: rgba(255, 255, 255, 0.35);
-}
-
-/* Standalone placeholder (e.g. the open Challenges node) gets some breathing room. */
-.hw-node__placeholder--block {
-  min-height: 120px;
-}
 
 /* --- Responsive: tighten the spine gutter on narrow screens --- */
 @media (max-width: 720px) {

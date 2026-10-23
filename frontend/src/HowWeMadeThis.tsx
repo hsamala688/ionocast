@@ -7,13 +7,13 @@ import './HowWeMadeThis.css';
 // one node that combines the pipeline step (what it does) with the choices and
 // reasoning behind it (why), so the "what" and the "why" read together instead
 // of in two separate columns. Sections group the flow (ingestion, processing,
-// model, serving) and the last section is left open for challenges & mistakes.
+// model, serving) and the last section collects the challenges & mistakes.
 //
-// Structure is data-driven (edit the arrays); copy is terse placeholder text.
+// Structure is data-driven (edit the arrays).
 
-// `note` is the "why / choices" for a stage. Leave it out to show the dashed
-// "fill in…" placeholder. It's a ReactNode, so a plain string works, or JSX
-// (e.g. a <ul> of bullet points).
+// `note` is the "why / choices" for a stage. Leave it out (or empty) and the
+// node renders the "what it does" half alone — no empty section. It's a
+// ReactNode, so a plain string works, or JSX (e.g. a <ul> of bullet points).
 type Stage = { cmd?: string; title: string; desc: string; note?: React.ReactNode };
 type LayerId = 'bronze' | 'silver' | 'gold';
 type Layer = { id: LayerId; label: string; tagline: string; stages: Stage[] };
@@ -157,7 +157,6 @@ const LAYERS: Layer[] = [
 const MODEL: Stage = {
   title: 'SFNO model (s2cc)',
   desc: 'Spherical Fourier Neural Operator trained on the windows; predicts residual dTEC, then + IRI baseline → absolute predicted TEC. TODO: architecture, training, metrics.',
-  note: ``
 };
 
 // --- Serving: how a map gets from model/observation onto the globe ---
@@ -208,6 +207,130 @@ const SERVING: Stage[] = [
   },
 ];
 
+// --- Challenges & mistakes: what went wrong, and what it changed ---
+// `fixLabel` overrides the second eyebrow for an item that isn't closed yet.
+type Challenge = {
+  title: string;
+  problem: React.ReactNode;
+  fix: React.ReactNode;
+  fixLabel?: string;
+};
+
+const CHALLENGES: Challenge[] = [
+  {
+    title: 'Timestamps that were silently off by the local UTC offset',
+    problem: `Frame epochs are UTC seconds by contract, but the pipeline minted them with
+    datetime.timestamp() on naive datetimes — which reinterprets the value in whatever timezone the
+    machine happens to be in. Every frame shifted by the local offset, and by a different amount
+    either side of a DST boundary. Nothing broke: the maps still lined up with each other, so every
+    downstream equality check kept passing and the only symptom was a dataset quietly misaligned
+    with the drivers that are supposed to explain it.`,
+    fix: `Epoch seconds are now minted in exactly one place, and _to_epoch_utc raises on a naive
+    datetime rather than guessing a zone. Because code version alone cannot express this, every run
+    manifest also records TZ, tzname and the UTC offset the build ran under. The regression is
+    pinned by tests that assert frame epochs are byte-identical across timezones — a UTC cloud build
+    must equal a laptop build — and stay evenly spaced across a DST transition.`,
+  },
+  {
+    title: 'We pulled F10.7 from the wrong product',
+    problem: `The first version of the driver path took its indices from the OMNI2 hourly product
+    and CelesTrak. Both look right, and both are wrong for this pipeline: OMNI2's F10.7 is adjusted
+    to 1 AU, so it cannot feed an IRI baseline that expects the observed flux, and its June 2006 Kp
+    contradicts the definitive GFZ record. An F10.7 error does not stay local either — it goes into
+    the IRI baseline, and the baseline goes into both the model inputs and the targets.`,
+    fix: `The GFZ combined index file is now the single origin for both Kp and observed F10.7, and
+    the column mapping is proven rather than trusted: the parser checks the orbital signature
+    (observed/adjusted tracks (1 AU / r)², so the ratio must exceed 1.015 at January perihelion and
+    fall below 0.985 in July) and aborts the build if it disappears. The source swap itself was
+    gated by verify-gates, which rebuilt both index series and required them to be equal over the
+    full overlap before anything downstream was allowed to move.`,
+  },
+  {
+    title: 'An unbounded fill invented driver history',
+    problem: `Aligning the solar-wind channels with a plain time interpolation draws a straight line
+    across any gap, however long — and OMNI has genuine multi-day plasma outages. The fabricated
+    history was worse than the gap: because interpolation leaves no NaN behind, the "raise if any
+    NaN survives" guard could essentially never fire, and the window builder's finiteness test had
+    nothing left to catch. Storm-time windows were being trained on driver values no instrument ever
+    measured.`,
+    fix: `Both fills are now bounded, and values beyond the tolerance are deliberately left NaN
+    instead of filled: 120 minutes for the OMNI channels, measured per channel (an IMF outage does
+    not imply a plasma outage), and one 3-hour window for the forward-filled Kp. Those NaNs are the
+    point — they make the finiteness test meaningful again, so a window spanning a real outage gets
+    dropped rather than silently invented. Each year also ships a per-value imputed mask and an
+    imputation-rule string, so provenance travels with the data.`,
+  },
+  {
+    title: 'A quality check that cried wolf',
+    problem: `IONEX repeats the same instant at day boundaries (the 24:00 map of one day is the
+    00:00 map of the next), and because the two copies come from different daily CODE solutions they
+    never agree exactly. We judged that disagreement with a fixed 0.1 TECU tolerance. TEC swings
+    roughly 10× over a solar cycle, so an absolute threshold fires hardest at solar maximum —
+    precisely where relative agreement is best. It warned on every year from 2002 onward, which is
+    the kind of noise that trains you to ignore the log entirely.`,
+    fix: `Measured across the record, the disagreement is a near-constant fraction of signal: ~1.42%
+    in 2002, 1.45% in 2004, 1.0% in a quiet 2019 — while the raw figure ranges from 0.08 to 0.48
+    TECU. The tolerance is now relative, at 5%, which leaves over 3× headroom above the observed
+    baseline while a genuinely misaligned map still differs by tens of percent. The percentage is
+    logged every year whether or not it warns, so the trend stays visible without the false alarms.`,
+  },
+  {
+    title: 'We derived the spectral bandwidth on the wrong field',
+    problem: `The first L_max derivation ran on raw IONEX TEC, approximating the IRI subtraction by
+    removing the area-weighted spatial mean. It produced a confident answer from a hard cliff in the
+    power spectrum — but that cliff is an artifact of the product, not a property of the ionosphere:
+    CODE builds IONEX by fitting spherical harmonics internally up to l=15. We had measured the
+    bandwidth of the file format. The elevated even degrees in the same spectrum were aliasing from
+    interpolating the 5° longitude sampling, which is also not signal.`,
+    fix: `The derivation was redone on the actual modelling target, the ΔTEC residual, where the
+    decay is gradual and no format cliff exists. With no cliff to lean on, the Parseval energy bound
+    does the real work: L_max is the smallest truncation retaining 99.9% of the residual's energy,
+    which is what fixes the Gauss-Legendre 23×45 grid (N_lat = L_max + 1, N_lon = 2·L_max + 1) the
+    whole pipeline is built around. Both notebooks are kept side by side, because the discarded one
+    is the evidence for why the second is trustworthy.`,
+  },
+  {
+    title: 'The archive fought back',
+    problem: `Two years of training data turned out not to exist. IONEX is missing a single isolated
+    day in 2020, 35 contiguous days at the end of 2022, and 218 contiguous days of 2023 — gaps at
+    the analysis center, not download failures, and no amount of retrying produces them. IGS also
+    renamed the files mid-record, at DOY 219 of 2023, so an extractor written against either naming
+    scheme alone fails on half the archive while looking like a network problem.`,
+    fix: `The extractor tries both the legacy and long-name schemes for every day and lets the first
+    success become that day's manifest row, and a 404 is recorded as a permanent skip — a real data
+    gap, not a transient error to retry forever. The gaps then had to be made harmless downstream,
+    which is where the window rule comes from: a window is kept only if its nine timestamps are
+    finite, strictly increasing, and identically spaced. That last clause is what stops a window
+    from straddling a gap — or the point where the IONEX cadence changes from 2-hourly to hourly.`,
+  },
+  {
+    title: 'Kp still leaks a little of the future',
+    problem: `Kp is a step index published only after its 3-hour window closes, so it is
+    forward-filled rather than interpolated — interpolating it would obviously leak. The subtler
+    problem is the stamp: windows are stamped at their start, so a frame at 01:00 receives the Kp of
+    the 00:00–03:00 window, which is not published until 03:00 and encodes activity through 03:00.
+    That is up to 3 hours of lookahead on a 3–9 hour forecast.`,
+    fix: `Stamping at window end would close it, and we have left it open on purpose for now:
+    changing it alters the driver contract and invalidates every built artifact. It is written down
+    in the pipeline docs instead of quietly fixed, so any score this model posts is read with it in
+    view — an honest caveat beats a silent one.`,
+    fixLabel: 'Where it stands',
+  },
+  {
+    title: 'The globe looked right on exactly one screen',
+    problem: `Two rendering bugs had the same root cause — something fixed that should have been
+    derived. A hard-coded camera distance framed the globe correctly on the developer's monitor and
+    cropped it on tall or narrow ones, and pinning the overlay to a fixed UT hour let the TEC crest
+    drift off the dayside as the Earth spun, so the brightest part of the map sat in the dark.`,
+    fix: `The camera distance is now solved from the geometry: a sphere of radius r at distance d
+    subtends asin(r/d), so d = r / sin(half-FOV) against whichever dimension is actually limiting at
+    the current aspect ratio, which means the globe is never cropped. The displayed hour is picked
+    per frame as the UT hour whose subsolar meridian faces the sun, derived from the sun's direction
+    in the Earth's own frame rather than from the spin angle — so it stays correct under the 23.44°
+    axial tilt, and one revolution naturally sweeps all 24 hours.`,
+  },
+];
+
 // One unified flow node: the pipeline stage (what it does) and the choices /
 // reasoning (why) combined in a single card, threaded onto the flow spine.
 const StageNode: React.FC<{ stage: Stage; accent?: LayerId }> = ({ stage, accent }) => (
@@ -224,13 +347,36 @@ const StageNode: React.FC<{ stage: Stage; accent?: LayerId }> = ({ stage, accent
         <p className="hw-node__desc">{stage.desc}</p>
       </div>
 
-      <div className="hw-node__why">
-        <span className="hw-node__eyebrow hw-node__eyebrow--why">Why / choices</span>
-        {stage.note ? (
+      {stage.note && (
+        <div className="hw-node__why">
+          <span className="hw-node__eyebrow hw-node__eyebrow--why">Why / choices</span>
           <div className="hw-node__note">{stage.note}</div>
-        ) : (
-          <p className="hw-node__placeholder">Fill in the choices made at this stage.</p>
-        )}
+        </div>
+      )}
+    </div>
+  </div>
+);
+
+// A challenge node: the same card as a pipeline stage, but the two halves are
+// "what went wrong" and what we changed because of it.
+const ChallengeNode: React.FC<{ item: Challenge }> = ({ item }) => (
+  <div className="hw-node">
+    <span className="hw-node__marker" aria-hidden="true" />
+    <div className="hw-node__card">
+      <div className="hw-node__head">
+        <h4 className="hw-node__title">{item.title}</h4>
+      </div>
+
+      <div className="hw-node__what">
+        <span className="hw-node__eyebrow">What went wrong</span>
+        <div className="hw-node__desc">{item.problem}</div>
+      </div>
+
+      <div className="hw-node__why">
+        <span className="hw-node__eyebrow hw-node__eyebrow--why">
+          {item.fixLabel ?? 'What we changed'}
+        </span>
+        <div className="hw-node__note">{item.fix}</div>
       </div>
     </div>
   </div>
@@ -286,18 +432,10 @@ export const HowWeMadeThis: React.FC = () => {
           {SERVING.map((s) => <StageNode key={s.title} stage={s} />)}
         </div>
 
-        {/* 05 Challenges & mistakes — intentionally empty, fill in later */}
+        {/* 05 Challenges & mistakes */}
         <SectionHead num="05" title="Challenges & Mistakes" sub="What went wrong and what we learned along the way." />
         <div className="hw-track">
-          <div className="hw-node">
-            <span className="hw-node__marker" aria-hidden="true" />
-            <div className="hw-node__card">
-              <p className="hw-node__placeholder hw-node__placeholder--block">
-                {/* TODO: document challenges, dead ends, and mistakes here */}
-                Fill in the challenges and mistakes made along the way.
-              </p>
-            </div>
-          </div>
+          {CHALLENGES.map((c) => <ChallengeNode key={c.title} item={c} />)}
         </div>
       </div>
     </main>
