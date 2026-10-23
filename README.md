@@ -8,7 +8,7 @@
 
 ## What this is
 
-IonoCast forecasts global ionospheric Total Electron Content (TEC) 1–6
+IonoCast forecasts global ionospheric Total Electron Content (TEC) 2–6
 hours ahead. TEC is the vertically integrated electron density of the
 ionosphere; it drives GNSS positioning error, HF communication
 blackouts, and satellite drag, with the largest disruptions during
